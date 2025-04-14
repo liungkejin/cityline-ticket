@@ -1,0 +1,7 @@
+cnocr
+opencv-python
+DrissionPage
+pyautogui
+numpy
+tzlocal
+pytz
