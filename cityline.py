@@ -664,3 +664,40 @@ class CitylineMgr:
             return url
         print('getRealPurchaseUrl error: ', result.status_code)
         return None
+    
+
+def clickPurchaseBtn(tab):
+    #name='.btn btn-outline-primary purchase-btn required'
+    tab.scroll.to_see('.ticketCard')
+    ticketCard = tab.ele('.ticketCard')
+    purchaseBtn = ticketCard.ele('tag:button')
+    time.sleep(1)
+    purchaseBtn.click()
+    
+def clickPurchaseBtnAfterCloudFlare(tab):
+    btnDiv = tab.ele('.modal-footer')
+    print('btndiv: ', btnDiv.html)
+    loginBtn = btnDiv.ele('.btn-login')
+    loginBtn.wait.enabled()
+    # print('loginBtn: ', loginBtn.html)
+    # while ('disabled="disabled"' in loginBtn.html):
+    #     print('登录按钮不可用，等待 1 秒')
+    #     time.sleep(0.1)
+    #     loginBtn = btnDiv.ele('.btn-login')
+    #     print('loginBtn: ', loginBtn.html)
+    # loginBtn = waitLoginBtnEnable(btnDiv, '.btn-login')
+    loginBtn.click()
+            
+def clickLoginBtn(tab):
+    eleNavBar = tab.ele('.navbar')
+    if eleNavBar:
+        loginBtns = eleNavBar.eles('登入')
+        for loginBtn in loginBtns:
+            print('loginBtn: ', loginBtn.html)
+            try:
+                loginBtn.click()
+            except Exception as e:
+                print('Error: ', e)
+    else:
+        raise ValueError('没有找到 navbar 元素')
+    
