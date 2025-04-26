@@ -1,6 +1,8 @@
 
 from datetime import datetime
 import pytz, time, requests, tzlocal, json
+
+from cloudflare_bypasser import CloudFlareBypasser
     
 ################ 下面的 js 代码转换为 python 代码
 
@@ -539,6 +541,15 @@ class CitylineEvent:
     def content(self):
         return self.event_data.get('content', {})
     
+    def titleEn(self):
+        return self.content().get('titleEn', '')
+    
+    def titleSc(self):
+        return self.content().get('titleSc', '')
+    
+    def titleTc(self):
+        return self.content().get('titleTc', '')
+    
     def isEnabled(self):
         return self.event_data.get('disable', False) == False
         
@@ -584,6 +595,9 @@ class CitylineEvent:
     def siteType(self):
         return self.event_data.get('siteType', '')
     
+    def isType(self, type):
+        return type in self.siteType()
+    
     def utsvEventKey(self):
         return self.content().get('utsvEventKey', 0)
     
@@ -596,27 +610,40 @@ class CitylineEventList:
         return [
             item for item in self.event_items if item.isNotSoldOut()
         ]
+        
+    def getAllSoldOutEvents(self):
+        return [
+            item for item in self.event_items if not item.isNotSoldOut()
+        ]
     
     def getAllEventTypeOf(self, type):
         return [
-            item for item in self.event_items if item.siteType() == type
+            item for item in self.event_items if item.isType(type)
         ]
         
-    def getAllEventInSaling(self):
+    def getAllEventInSaling(self, type = None):
         return [
-            item for item in self.event_items if item.isSaling()
+            item for item in self.event_items if item.isSaling() and (type is None or item.isType(type))
         ]
         
-    def getAllEventComingSoon(self):
+    def getAllEventComingSoon(self, type = None):
         return [
-            item for item in self.event_items if item.getSalingType() == -1
+            item for item in self.event_items if item.getSalingType() == -1 and (type is None or item.isType(type))
         ]
+        
+    def findEventMatchTitle(self, name):
+        # 查找所有包含 name 的活动
+        for item in self.event_items:
+            if name in item.titleEn() or name in item.titleSc() or name in item.titleTc():
+                return item
+        return None
         
 
 class CitylineMgr:
     def __init__(self):
         self.event_list = CitylineEventList([])
         self.utsv_event_list = CitylineUtsvEventList([])
+        self.price_zone_list = CitylinePriceZoneList(None)
         
     def requestEventList(self):
         url = 'https://shows.cityline.com/data/event-list.json?v=' + str(int(time.time() * 1000))
@@ -641,6 +668,10 @@ class CitylineMgr:
         print('requestUtsvEventList error: ', result.status_code)
         return None
     
+    def requestAllEvent(self):
+        self.requestUtsvEventList()
+        self.requestEventList()
+        
     # {
     #     "additionalUrlList": [],
     #     "url": "https://event.cityline.com/utsvInternet/5225MAYDAYHK25/home"
@@ -661,32 +692,143 @@ class CitylineMgr:
             print('getRealPurchaseUrl result: ', result.text)
             result = json.loads(result.text)
             url = result.get('url', '')
+            # 给 url 带上一个 lang=CN 参数
+            if url and not url.endswith('.html'):
+                if '?' in url:
+                    url += '&lang=CN'
+                else:
+                    url += '?lang=CN'
             return url
         print('getRealPurchaseUrl error: ', result.status_code)
         return None
     
+    # 点击购买按钮，会有几种情况
+    # 1. 弹出 cloudflare 验证码框，验证过了之后，直接打开了选座页面
+    # 2. 如果之前有购买，就会直接跳转到选座页面
+    # 返回验证码框的div，如果不需要验证码就返回 None
+    def clickFirstPurchaseBtn(self, tab, timeoutS=3):
+        #name='.btn btn-outline-primary purchase-btn required'
+        print('点击第一个购买按钮')
+        tab.scroll.to_see('.ticketCard')
+        ticketCard = tab.ele('.ticketCard')
+        purchaseBtn = ticketCard.ele('tag:button')
+        purchaseBtn.wait.clickable()
+        prev_url = tab.url
+        print('点击第一个购买按钮, url: ', prev_url)
+        purchaseBtn.click()
+        
+        start_time = time.time()
+        # 判断是否 tab 的 url 发生了变化，还是弹出了 cloudflare 验证码框
+        while True:
+            if tab.url != prev_url:
+                print('url 发生变化，应该不需要验证码: ', tab.url)
+                return None
+            try:
+                cloud_flare_div = tab.ele('.modal fade show', timeout=0.3)
+                if cloud_flare_div:
+                    print('找到验证码框布局显示，需要进行验证')
+                    return cloud_flare_div
+            except Exception as e:
+                ignore = ''
+                
+            if time.time() - start_time > timeoutS:
+                print('超时了，既没有页面改变又没有发现验证码框，返回 None')
+                return None
+        return None
+        
+    def clickPurchaseBtnAfterCloudFlare(self, tab):
+        btnDiv = tab.ele('.modal-footer')
+        loginBtn = btnDiv.ele('.btn-login')
+        loginBtn.wait.enabled()
+        loginBtn.click()
+        
+        
+    def processFirstPurchasePage(self, tab):
+        print('processFirstPurchasePage')
+        tab.listen.start("/pricezones")
+        
+        cloud_flare_div = self.clickFirstPurchaseBtn(tab)
 
-def clickPurchaseBtn(tab):
-    #name='.btn btn-outline-primary purchase-btn required'
-    tab.scroll.to_see('.ticketCard')
-    ticketCard = tab.ele('.ticketCard')
-    purchaseBtn = ticketCard.ele('tag:button')
-    time.sleep(1)
-    purchaseBtn.click()
-    
-def clickPurchaseBtnAfterCloudFlare(tab):
-    btnDiv = tab.ele('.modal-footer')
-    print('btndiv: ', btnDiv.html)
-    loginBtn = btnDiv.ele('.btn-login')
-    loginBtn.wait.enabled()
-    # print('loginBtn: ', loginBtn.html)
-    # while ('disabled="disabled"' in loginBtn.html):
-    #     print('登录按钮不可用，等待 1 秒')
-    #     time.sleep(0.1)
-    #     loginBtn = btnDiv.ele('.btn-login')
-    #     print('loginBtn: ', loginBtn.html)
-    # loginBtn = waitLoginBtnEnable(btnDiv, '.btn-login')
-    loginBtn.click()
+        if cloud_flare_div is not None:
+            cloud_flare_dialog_root = cloud_flare_div.ele('.modal-content h-100')
+            if not cloud_flare_dialog_root:
+                print('没有找到 cloudFlare 的 div')
+                return False
+            # 验证 cloudFlare
+            clbypasser = CloudFlareBypasser(2)
+            if not clbypasser.bypass(tab, cloud_flare_dialog_root):
+                print('CloudFlare 验证失败')
+                return False
+            else:
+                print('CloudFlare 验证成功')
+            
+            # 验证成功之后，点击购买按钮
+            # 这里面有两种情况
+            # 1. 点击购买按钮，直接进入到选座页面
+            # 2. 点击购买按钮，进入到排队页面
+            self.clickPurchaseBtnAfterCloudFlare(tab)
+        
+        return True
+
+    # expectNum 是期望的票数
+    # priceZone 是票价区间信息
+    def selectTicketTypeAndNum(self, tab, priceZone, expectNum):
+        print('选择票价 和 张数')
+        ticketType = priceZone.aviableTicketType()
+        if ticketType is None:
+            print('没有找到可用的票')
+            return False
+        
+        priceBox1 = tab.ele('.price-box1')
+        priceDiv = priceBox1.ele('.price')
+        
+        # 这里不处理没有选中的情况，因为系统有一个默认选中的票价
+        exvalue = 'value="' + str(priceZone.id()) + '"'
+        for div in priceDiv.children():
+            radio = div.ele('.ticket-price-btn')
+            if exvalue in radio.html:
+                print('选择票的类型: ', radio.html)
+                radio.click()
+                break
+        discountDegree = tab.ele('.discount-degree')
+        selectForm = discountDegree.child().ele('tag:select')
+        # print('selectForm = ', selectForm.html)
+        # 第一个选项是当前选中的票价，不是真的的选项
+        optionCount = len(selectForm.select.options)-1
+        num = min(optionCount, expectNum)
+        print('optionCount = ', optionCount, ', selectNum = ', num)
+        
+        selectForm.select.by_index(num+1)
+        return True
+        
+    def clickSecondPagePurchaseBtn(self, tab):
+        expressPurchaseBtn = tab.ele('#expressPurchaseBtn')
+        print('expressPurchaseBtn = ', expressPurchaseBtn.html)
+        expressPurchaseBtn.click()
+        
+    # 处理第二个购买页面, 选座和选票
+    def processSecondPurchasePage(self, tab, expectTicketNum):
+        print('processSecondPurchasePage')
+        packet = tab.listen.wait(timeout=5)
+        if not packet or packet is None or packet.response is None or packet.response.status != 200:
+            print('没有获取到 pricezones 信息')
+            return False
+        self.price_zone_list = CitylinePriceZoneList(packet.response.body)
+        avPriceZone = self.price_zone_list.getAavaiableMaxPriceZone()
+        if avPriceZone is None:
+            print('没有找到可用的票价区间')
+            return False
+        print('找到可用的价格区间: ', avPriceZone.id(), '-', avPriceZone.code(), '-', avPriceZone.price())
+
+        print('正在跳转到选座页面, 等待页面加载完成')
+        # 正在跳转到选座页面, 等待页面加载完成
+        tab.wait.doc_loaded(timeout=10)
+        
+        if not self.selectTicketTypeAndNum(tab, avPriceZone, expectTicketNum):
+            print('选择票价和张数失败')
+            return False
+        self.clickSecondPagePurchaseBtn(tab)
+        return True
             
 def clickLoginBtn(tab):
     eleNavBar = tab.ele('.navbar')
@@ -701,3 +843,137 @@ def clickLoginBtn(tab):
     else:
         raise ValueError('没有找到 navbar 元素')
     
+# https://venue.cityline.com/utsvInternet/internet/api/event/53743/performance/83614/pricezones?_=1745657524461
+#{
+#    "pricezones": [
+#        {
+#            "pricezoneId": 324,
+#            "code": "A",
+#            "color": "#FF3333",
+#            "nameEn": "A",
+#            "nameTc": "A",
+#            "nameSc": "A",
+#            "price": 780.0,
+#            "status": "AVAILABLE",
+#            "ticketTypes": [
+#                {
+#                    "tickettypeId": 100,
+#                    "tickettypeCode": "STAN",
+#                    "descriptionEn": "STANDARD",
+#                    "descriptionTc": "正價票",
+#                    "descriptionSc": "正价票",
+#                    "tickettypeNameEn": "STANDARD",
+#                    "tickettypeNameTc": "正價票",
+#                    "tickettypeNameSc": "正价票",
+#                    "quantity": 10,
+#                    "price": 780.0,
+#                    "boundType": null,
+#                    "boundQuantity": null,
+#                    "prerequisiteTicketTypeId": null
+#                }
+#            ],
+#            "additionalMessages": []
+#        },
+#        {
+#            "pricezoneId": 325,
+#            "code": "B",
+#            "color": "#0066FF",
+#            "nameEn": "B",
+#            "nameTc": "B",
+#            "nameSc": "B",
+#            "price": 680.0,
+#            "status": "AVAILABLE",
+#            "ticketTypes": [
+#                {
+#                    "tickettypeId": 100,
+#                    "tickettypeCode": "STAN",
+#                    "descriptionEn": "STANDARD",
+#                    "descriptionTc": "正價票",
+#                    "descriptionSc": "正价票",
+#                    "tickettypeNameEn": "STANDARD",
+#                    "tickettypeNameTc": "正價票",
+#                    "tickettypeNameSc": "正价票",
+#                    "quantity": 10,
+#                    "price": 680.0,
+#                    "boundType": null,
+#                    "boundQuantity": null,
+#                    "prerequisiteTicketTypeId": null
+#                }
+#            ],
+#            "additionalMessages": []
+#        }
+#    ]
+#}
+
+class CitylineTicketType:
+    def __init__(self, tickettype_data):
+        self.tickettype_data = tickettype_data
+        
+    def id(self):
+        return self.tickettype_data.get('tickettypeId', 0)
+    
+    def code(self):
+        return self.tickettype_data.get('tickettypeCode', '')
+    
+    # 是否是正价票
+    def isStandard(self):
+        return self.tickettype_data.get('tickettypeCode', '') == 'STAN'
+    
+    def quantity(self):
+        return self.tickettype_data.get('quantity', 0)
+    
+    def price(self):
+        return self.tickettype_data.get('price', 0)
+    
+    def available(self):
+        return self.quantity() > 0
+
+class CitylinePriceZoneItem:
+    def __init__(self, pricezone_data):
+        self.pricezone_data = pricezone_data
+        
+    def id(self):
+        return self.pricezone_data.get('pricezoneId', 0)
+    
+    def code(self):
+        return self.pricezone_data.get('code', '')
+    
+    def price(self):
+        return self.pricezone_data.get('price', 0)
+    
+    def allTicketTypes(self):
+        ticket_types = self.pricezone_data.get('ticketTypes', [])
+        return [CitylineTicketType(ticket_type) for ticket_type in ticket_types]
+
+    def aviableTicketType(self, code = 'STAN'):
+        ticket_types = self.allTicketTypes()
+        for ticket_type in ticket_types:
+            if ticket_type.available() and (code is None or ticket_type.code() == code):
+                return ticket_type
+        return None
+    
+    def available(self, code = 'STAN'):
+        return self.aviableTicketType(code) is not None
+    
+class CitylinePriceZoneList:
+    def __init__(self, pricezone_data):
+        self.pricezone_data_list = []
+        if pricezone_data is not None:
+            self.pricezone_data_list = pricezone_data.get('pricezones', [])
+        self.pricezone_items = [CitylinePriceZoneItem(pricezone_data) for pricezone_data in self.pricezone_data_list]
+        
+    def getPriceZoneById(self, id):
+        for item in self.pricezone_items:
+            if item.id() == id:
+                return item
+        return None
+    
+    # 找到正价票的数量 > 0 的价格最高的票
+    def getAavaiableMaxPriceZone(self):
+        max_price = 0
+        max_price_zone = None
+        for item in self.pricezone_items:
+            if item.price() > max_price and item.available():
+                max_price = item.price()
+                max_price_zone = item
+        return max_price_zone

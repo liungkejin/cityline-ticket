@@ -42,6 +42,13 @@ class CloudFlareBypasser:
         # 屏幕坐标缩放比例, 在我的电脑上，屏幕坐标都是乘了 2
         self.screen_scale = screen_scale
         self.ocr = CnOcr()
+    
+    def find_element(self, tab, elementName):
+        try:
+            return tab.ele(elementName)
+        except Exception as e:
+            print('find element exception: ', e)
+            return False
         
     # 这个函数是用来找到 cloudFlare 的 checkbox 的位置
     # 也可以判断是否成功了
@@ -89,10 +96,9 @@ class CloudFlareBypasser:
             # 如果超时了，就退出循环
             # 这里的 timeout_ms 是毫秒，所以要除以 1000
             if (timeoutS > 0) and (time.time() - start_time > timeoutS):
-                print('超时了')
+                print('find_cloud_flare_checkbox_position timeout')
                 break
-            # 等待 0.1 秒，避免过于频繁的截图
-            # time.sleep(0.1)
+
         if text_pos is None:
             return None
         
@@ -141,7 +147,7 @@ class CloudFlareBypasser:
     # 这个函数是用来找到 cloudFlare 的根 div 的位置
     def waitCloudFlareRootDiv(self, venueTab, locator, timeoutS=10):
         start_time = time.time()
-        div = venueTab.ele(locator)
+        div = self.find_element(venueTab, locator)
         while not div:
             if (time.time() - start_time) > timeoutS:
                 print('waitCloudFlareRootDiv: 超时了')
@@ -150,14 +156,13 @@ class CloudFlareBypasser:
                 div = venueTab.ele(locator)
             except Exception as e:
                 print('Error: ', e)
-                # 等待 0.1 秒
-                time.sleep(0.1)
-                continue
-            
+            # 等待 0.1 秒
+            time.sleep(0.1)
+            # modal fade show
         return div
     
-    def bypass(self, tab, cloudFlareRootDivLocator):
-        cloudFlareRootDiv = self.waitCloudFlareRootDiv(tab, cloudFlareRootDivLocator)
+    def bypass(self, tab, cloudFlareRootDiv):
+        #cloudFlareRootDiv = self.waitCloudFlareRootDiv(tab, cloudFlareRootDivLocator)
         checkbox_pos = self.find_cloud_flare_checkbox_position(cloudFlareRootDiv)
 
         if checkbox_pos is not None:
@@ -169,34 +174,21 @@ class CloudFlareBypasser:
             sy = checkbox_pos[2]
             rx = checkbox_pos[3]  # 元素相对位置
             ry = checkbox_pos[4]
+
+            # 这里是使用 pyautogui 来移动鼠标
+            # 移动鼠标到 checkbox 的位置
+            pyautogui.moveTo(sx, sy, duration=0)
+            pyautogui.click()
+            pyautogui.click()
             
-            if False:
-                tab.actions.move_to(cloudFlareRootDiv, rx, ry, 0)
-                tab.actions.click()
-            else:
-                # 这里是使用 pyautogui 来移动鼠标
-                # 移动鼠标到 checkbox 的位置
-                pyautogui.moveTo(sx, sy, duration=0)
-                pyautogui.click()
-                pyautogui.click()
             time.sleep(0.1)
+            
             print('点击了 checkbox 的位置: ', (sx, sy, rx, ry), ', 等待完成')
             # 等待成功
             result = self.waiting_success(cloudFlareRootDiv, timeoutS=5)
             print('bypass result: ', result)
             
             return result
-            btnDiv = tab.ele('.modal-footer')
-            print('btndiv: ', btnDiv.html)
-            loginBtn = btnDiv.ele('.btn-login')
-            print('loginBtn: ', loginBtn.html)
-            while ('disabled="disabled"' in loginBtn.html):
-                print('登录按钮不可用，等待 1 秒')
-                time.sleep(0.1)
-                loginBtn = btnDiv.ele('.btn-login')
-                print('loginBtn: ', loginBtn.html)
-            # loginBtn = waitLoginBtnEnable(btnDiv, '.btn-login')
-            loginBtn.click()
         else:
             print('没有找到 checkbox 的位置')
             return False
