@@ -11,7 +11,9 @@ coption = ChromiumOptions().set_browser_path(chromePath)
 coption.save()
 Settings.set_language('zh_cn')
 
+# 要抢的张数, 默认强最贵的
 config_ticket_num = 2
+# TODO 监控的活动名称
 config_monitor_name = 'G-DRAGON'
 
 chromium = Chromium(addr_or_opts=coption)
@@ -20,7 +22,7 @@ chromium = Chromium(addr_or_opts=coption)
 
 citylineMgr = CitylineMgr()
 citylineMgr.requestAllEvent()
-allIsSalingEvents = citylineMgr.event_list.getAllSoldOutEvents()
+allIsSalingEvents = citylineMgr.event_list.getAllEventInSaling('shows')
 if len(allIsSalingEvents) == 0:
     print('没有活动正在售卖中')
     exit(0)
@@ -29,7 +31,7 @@ print('有活动正在售卖中')
 for event in allIsSalingEvents:
     print('正在售卖中 : ', event.event_data)
 
-purchaseUrl = citylineMgr.requestRealPurchaseUrl(allIsSalingEvents[1])
+purchaseUrl = citylineMgr.requestRealPurchaseUrl(allIsSalingEvents[0])
 if purchaseUrl is None:
     print('没有获取到购买页链接')
     exit(-1)
@@ -50,7 +52,7 @@ else:
     print('第一个页面处理失败')
     exit(-1)
     
-if citylineMgr.processSecondPurchasePage(tab, 2):
+if citylineMgr.processSecondPurchasePage(tab, config_ticket_num):
     print('第二个页面处理成功')
 else:
     print('第二个页面处理失败')
