@@ -671,7 +671,7 @@ class CitylineMgr:
     def requestAllEvent(self):
         self.requestUtsvEventList()
         self.requestEventList()
-        
+
     # {
     #     "additionalUrlList": [],
     #     "url": "https://event.cityline.com/utsvInternet/5225MAYDAYHK25/home"
@@ -701,16 +701,66 @@ class CitylineMgr:
             return url
         print('getRealPurchaseUrl error: ', result.status_code)
         return None
-    
+            
+    # 监听活动，直到开卖
+    def monitorEvent(self, eventTitle):
+        self.requestAllEvent()
+        findEvent = self.event_list.findEventMatchTitle(eventTitle)
+        if findEvent is None:
+            print('没找到 匹配 ', eventTitle, ' 的活动')
+            return (None, None)
+        print('找到活动: ', findEvent.event_data)
+        
+        salingType = findEvent.getSalingType()
+        if salingType == -1:
+            print('活动还没有开售')
+        elif salingType == 0:
+            print('活动正在售票中')
+        elif salingType == 1:
+            print('活动已经结束')
+        
+        saleStartTime = findEvent.saleStartTime().timestamp()
+        # 一直循环直到 开售
+        while True:
+            currentTime = getHKDate().timestamp()
+            # 在开售前 30s 开始不断拉取真实的购买链接
+            if currentTime < saleStartTime - 30:
+                deltaTime = saleStartTime - currentTime
+                print('距离开售还有 %ds, 等待中...' % deltaTime)
+                time.sleep(1)
+                continue
+            # 开售了，拉取真实的购买链接
+            realPurchaseUrl = self.requestRealPurchaseUrl(findEvent)
+            if realPurchaseUrl is None and realPurchaseUrl != '':
+                if salingType == 1:
+                    return (findEvent, None)
+                print('没有获取到真实购买链接，继续拉取')
+                continue
+            print('获取到真实购买链接: ', realPurchaseUrl)
+            return (findEvent, realPurchaseUrl)
+        
     # 点击购买按钮，会有几种情况
     # 1. 弹出 cloudflare 验证码框，验证过了之后，直接打开了选座页面
     # 2. 如果之前有购买，就会直接跳转到选座页面
     # 返回验证码框的div，如果不需要验证码就返回 None
-    def clickFirstPurchaseBtn(self, tab, timeoutS=3):
+    def clickFirstPurchaseBtn(self, tab):
         #name='.btn btn-outline-primary purchase-btn required'
         print('点击第一个购买按钮')
+        # 必须要等到这个控件
+        ticketCard = False
+        retryCount = 0
+        while True:
+            try:
+                ticketCard = tab.ele('.ticketCard', timeout = 1)
+            except Exception as e:
+                print('没有找到 ticketCard: ', e, ' retryCount: ', retryCount)
+                ticketCard = False
+                
+            if ticketCard:
+                break
+            retryCount += 1
+            
         tab.scroll.to_see('.ticketCard')
-        ticketCard = tab.ele('.ticketCard')
         purchaseBtn = ticketCard.ele('tag:button')
         purchaseBtn.wait.clickable()
         prev_url = tab.url
@@ -731,7 +781,7 @@ class CitylineMgr:
             except Exception as e:
                 ignore = ''
                 
-            if time.time() - start_time > timeoutS:
+            if time.time() - start_time > 5:
                 print('超时了，既没有页面改变又没有发现验证码框，返回 None')
                 return None
         return None
