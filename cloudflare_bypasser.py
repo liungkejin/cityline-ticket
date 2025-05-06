@@ -102,9 +102,11 @@ class CloudFlareBypasser:
         if text_pos is None:
             return None
         
-        px, py, width, height = element_screen_rect(element)
+        px, py, width, height = element_screen_rect(element, self.screen_scale)
+        print('element_screen_rect: ', (px, py, width, height))
         px = px + text_pos[0]/self.screen_scale
         py = py + text_pos[1]/self.screen_scale
+        print('找到 checkbox 的位置: ', (px, py))
         offset_x = cloudflare_logo_width / self.screen_scale / 4
         px = px - offset_x 
         

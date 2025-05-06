@@ -5,20 +5,32 @@ from DrissionPage.common import Settings
 from cityline import *
 from cloudflare_bypasser import *
 
-# edgePath = '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
-chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-coption = ChromiumOptions().set_browser_path(chromePath)
+browserPath = 'c:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+#chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+coption = ChromiumOptions().set_browser_path(browserPath)
 coption.save()
 Settings.set_language('zh_cn')
 
 # 要抢的张数, 默认强最贵的
-config_ticket_num = 2
+config_ticket_num = 5
 # TODO 监控的活动名称
-config_monitor_name = '天色2025'# 'G-DRAGON'
+config_monitor_name = 'G-DRAGON'
 
 chromium = Chromium(addr_or_opts=coption)
 # 启动或接管浏览器，并获取标签页对象
 # tab = chromium.latest_tab
+
+sw, sh = pyautogui.size()
+print(f'屏幕分辨率: {sw}x{sh}')
+
+# modalContent = tab.ele('.modal-content h-100')
+# print('rect.size: ', modalContent.rect.size)
+# print('rect.location: ', modalContent.rect.location)
+# print('rect.screen_location: ', modalContent.rect.screen_location)
+# print('rect.screen_midpoint: ', modalContent.rect.screen_midpoint)
+
+# pyautogui.moveTo(modalContent.rect.screen_location[0], modalContent.rect.screen_location[1], duration=2)
+# exit(0)
 
 citylineMgr = CitylineMgr()
 citylineMgr.requestAllEvent()

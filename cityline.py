@@ -640,10 +640,11 @@ class CitylineEventList:
         
 
 class CitylineMgr:
-    def __init__(self):
+    def __init__(self, screenScale = 1.0):
         self.event_list = CitylineEventList([])
         self.utsv_event_list = CitylineUtsvEventList([])
         self.price_zone_list = CitylinePriceZoneList(None)
+        self.screen_scale = screenScale
         
     def requestEventList(self):
         url = 'https://shows.cityline.com/data/event-list.json?v=' + str(int(time.time() * 1000))
@@ -724,7 +725,7 @@ class CitylineMgr:
         while True:
             currentTime = getHKDate().timestamp()
             # 在开售前 30s 开始不断拉取真实的购买链接
-            if currentTime < saleStartTime - 30:
+            if currentTime < saleStartTime - 300:
                 deltaTime = saleStartTime - currentTime
                 print('距离开售还有 %ds, 等待中...' % deltaTime)
                 time.sleep(1)
@@ -750,6 +751,15 @@ class CitylineMgr:
         ticketCard = False
         retryCount = 0
         while True:
+            try:
+                btnRetry = tab.ele('#btn-retry-en-1', timeout = 0)
+                if (btnRetry):
+                    btnRetry.wait.enabled(timeout = 0.5)
+                    print('找到 btnRetry, 点击')
+                    btnRetry.click()
+            except Exception as e:
+                btnRetry = False # ignore
+                
             try:
                 ticketCard = tab.ele('.ticketCard', timeout = 1)
             except Exception as e:
@@ -805,7 +815,7 @@ class CitylineMgr:
                 print('没有找到 cloudFlare 的 div')
                 return False
             # 验证 cloudFlare
-            clbypasser = CloudFlareBypasser(2)
+            clbypasser = CloudFlareBypasser(self.screen_scale)
             if not clbypasser.bypass(tab, cloud_flare_dialog_root):
                 print('CloudFlare 验证失败')
                 return False
